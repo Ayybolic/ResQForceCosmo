@@ -93,3 +93,127 @@ function ClientPage() {
                         // Reset form
                         setMapState({ position: [lat, lng], zoom: 15 });
                         setReportedLocation([lat, lng]);
+                        setDescription(''); setSeverity('medium'); setMobileNumber(''); // Reset severity to medium
+                    } catch (err) {
+                        console.error("Failed to report emergency online:", err); // <-- Log 6
+                        displayMessage('Failed to send report. Check connection or try again.', 'error');
+                    }
+                } else {
+                    // OFFLINE PATH
+                    console.log("Attempting to queue report offline (location success)..."); // <-- Log 7
+                    queueReportOffline(reportData, lat, lng); // Use helper function
+                }
+            },
+            // Error Callback (Geolocation Failed)
+            (geoError) => {
+                console.error("Geolocation failed:", geoError.message); // <-- Log 10
+                const isOnline = navigator.onLine; // Check network status *during* error
+                console.log("Network status check during geo fail. Is online:", isOnline);
+
+                if (!isOnline) {
+                    // --- Allow queuing EVEN IF geolocation fails when offline ---
+                    console.warn("Geolocation failed while offline. Queuing report without precise location.");
+                    const placeholderLat = 20.5937;
+                    const placeholderLng = 78.9629;
+
+                    // --- NEW LOGIC ADDED ---
+                    // Apply the same logic here for the offline path
+                    const finalSeverity = !description.trim() ? 'high' : severity;
+                    if (finalSeverity === 'high' && severity !== 'high') {
+                        console.log("Description empty (offline), auto-setting severity to 'high'.");
+                    }
+                    // --- END NEW LOGIC ---
+
+                    // --- MODIFIED ---
+                    const reportData = {
+                        lat: placeholderLat,
+                        lng: placeholderLng,
+                        description: `${description} (Location Accuracy Low - Reported Offline)`, // Add note
+                        tag,
+                        severity: finalSeverity, // Use the finalSeverity
+                        timestamp: new Date().toISOString()
+                    };
+                    // --- END MODIFICATION ---
+
+                    queueReportOffline(reportData, placeholderLat, placeholderLng); // Use helper function
+                } else {
+                    // Geolocation failed while ONLINE - don't queue
+                    displayMessage(`Could not get location: ${geoError.message}. Enable location access & try again.`, 'error');
+                }
+            },
+            // Options
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 } // Increased timeout slightly
+        );
+    };
+    // --- END: handleSubmit replacement ---
+
+
+    // --- ADDED: Helper function from second code block ---
+    const queueReportOffline = (reportData, displayLat, displayLng) => {
+         try {
+            const queuedReports = JSON.parse(localStorage.getItem('queuedEmergencyReports') || '[]');
+            queuedReports.push(reportData);
+            localStorage.setItem('queuedEmergencyReports', JSON.stringify(queuedReports));
+            console.log("Report queued successfully:", reportData); // <-- Log 8
+            displayMessage('Offline. Report queued and will send when online.', 'info'); // <-- Check this message
+            // Reset form
+            setMapState({ position: [displayLat, displayLng], zoom: 15 });
+            setReportedLocation([displayLat, displayLng]);
+            setDescription(''); setSeverity('medium'); setMobileNumber(''); // Reset severity to medium
+        } catch (storageError) {
+            console.error("Failed to queue report locally:", storageError); // <-- Log 9
+            displayMessage('Offline. Could not save report locally.', 'error');
+        }
+    };
+    // --- END: Added helper function ---
+
+    // Return statement JSX (Unchanged)
+    return (
+        <div style={styles.body}>
+            <div style={styles.mapContainer}>
+                <MapContainer center={mapState.position} zoom={mapState.zoom} style={{ height: '100%', width: '100%', borderRadius: '15px' }}>
+                    <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OpenStreetMap' />
+                    {reportedLocation && <Marker position={reportedLocation}><Popup>Reported location</Popup></Marker>}
+                    <MapUpdater center={mapState.position} zoom={mapState.zoom} />
+                </MapContainer>
+            </div>
+            <div style={styles.reportBox}>
+                <h3 style={styles.title}>🚨 Report Emergency</h3>
+                <p style={styles.disclaimer}>For demonstration purposes only.</p>
+                <form onSubmit={handleSubmit} style={{ width: '100%' }}>
+                    {/* ... form elements ... */}
+                    <select style={styles.inputBase} value={tag} onChange={(e) => setTag(e.target.value)}>
+                        <option value="fire">🔥 Fire</option>
+                        <option value="flood">🌊 Flood</option>
+                        <option value="accident">🚨 Accident</option>
+                        <option value="medical">⚕️ Medical</option>
+                        <option value="natural_disaster">🌪️ Natural Disaster</option>
+                        <option value="crime">🔪 Crime</option>
+                        <option value="other">❓ Other</option>
+                    </select>
+                    <div style={styles.severityGroup}>
+                        {['low', 'medium', 'high'].map((level) => (
+                            <button type="button" key={level} onClick={() => setSeverity(level)}
+                                style={{ ...styles.severityButton, borderColor: severity === level ? '#2eccff' : 'transparent' }}>
+                                {level.charAt(0).toUpperCase() + level.slice(1)}
+                            </button>
+                        ))}
+                    </div>
+                    <input
+                        type="tel"
+                        style={styles.inputBase}
+                        value={mobileNumber}
+                        onChange={(e) => setMobileNumber(e.target.value)}
+                        placeholder="Enter your mobile number"
+                        required
+                    />
+                    <textarea style={{...styles.inputBase, ...styles.textArea}} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe the emergency... (Optional)" />
+                    <button type="submit" style={styles.submitButton}>Send Alert</button>
+                </form>
+                {message.text && <div style={{ ...styles.messageBox, ...(styles[message.type]) }}>{message.text}</div>}
+            </div>
+        </div>
+    );
+}
+
+export default ClientPage;
